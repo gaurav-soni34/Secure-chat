@@ -105,7 +105,7 @@ const messages =new Elysia({ prefix: "/messages"}).use(autheMiddleware)
     {query : z.object({ roomId: z.string()})}
 )
 
-const app = new Elysia(/*{ prefix: "/api" }*/).use(rooms).use(messages)
+const app = new Elysia({ prefix: "/api" }).use(rooms).use(messages)
 
 export const GET = app.fetch
 export const POST = app.fetch
