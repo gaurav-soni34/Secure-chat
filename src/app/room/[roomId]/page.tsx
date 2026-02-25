@@ -181,7 +181,7 @@ const Page = () => {
           </div>
         )}
 
-        {messages?.messages.map((msg)=>(
+        {messages?.messages.map((msg:any)=>(
           <div key={msg.id} className="flex flex-col 
           items-start">
             <div className="max-w-[80%] group">
