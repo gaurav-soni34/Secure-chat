@@ -8,6 +8,7 @@ import { time } from "console";
 import { format } from "date-fns";
 import { useParams, useRouter } from "next/navigation";
 import { use, useEffect, useRef, useState } from "react";
+import { Message } from "@/src/lib/realtime";
 
 
 function formatTimeRemaining(seconds: number) {
@@ -181,7 +182,7 @@ const Page = () => {
           </div>
         )}
 
-        {messages?.messages.map((msg:any)=>(
+          {messages?.messages.map((msg: Message)=>( 
           <div key={msg.id} className="flex flex-col 
           items-start">
             <div className="max-w-[80%] group">
