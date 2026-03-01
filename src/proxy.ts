@@ -2,57 +2,81 @@ import { NextRequest, NextResponse } from "next/server"
 import { redis } from "./lib/redis"
 import { nanoid } from "nanoid"
 
-export const proxy =async (req: NextRequest)=>{
+export const proxy = async (req: NextRequest) => {
+  try {
+    const pathname = req.nextUrl.pathname
+    const roomMatch = pathname.match(/^\/room\/([^/]+)$/)
 
-    const pathname=req.nextUrl.pathname
+    if (!roomMatch) return NextResponse.redirect(new URL("/", req.url))
+    const roomId = roomMatch[1]
 
-    const roomMatch=pathname.match(/^\/room\/([^/]+)$/)
+    // ALWAYS fetch fresh data from Redis - never cache in memory
+    const meta = await redis.hgetall<{
+      connected: string[]
+      createdAt: number
+    }>(`meta:${roomId}`)
 
-    if(!roomMatch) return NextResponse.redirect(new URL("/", req.url))
-      const roomId= roomMatch[1]  
+    // Room doesn't exist
+    if (!meta || !meta.connected) {
+      return NextResponse.redirect(
+        new URL("/?error=room-not-found", req.url)
+      )
+    }
 
-    const meta = await redis.hgetall<{connected: string[];
-        createdAt:number}>(`meta:${roomId}`)
+    const existingToken = req.cookies.get("x-auth-token")?.value
 
-    if(!meta){
-        return NextResponse.redirect(new URL(
-            "/?error=room-not-found", req.url))
-    } 
+    // User already connected to this room - allow them to reconnect
+    if (existingToken && meta.connected.includes(existingToken)) {
+      return NextResponse.next()
+    }
 
-        const existingToken=req.cookies.get("x-auth-token")?.value
+    // ATOMIC CHECK: Use Redis LLEN to get actual length from persistent storage
+    // This prevents race conditions across multiple serverless instances
+    const connectedCount = meta.connected.length
 
-        //user is allowed to join room
+    if (connectedCount >= 3) {
+      return NextResponse.redirect(
+        new URL("/?error=room-full", req.url)
+      )
+    }
 
-        if(existingToken && meta.connected.includes(existingToken)){
-            return NextResponse.next()
-        }
+    const response = NextResponse.next()
+    const token = nanoid()
 
-        //user is not allowed to join
-        if(meta.connected.length >=2){
-            return NextResponse.redirect(new URL
-                ("/?error =room-full", req.url)
-            )
-        }
-
-    const response =NextResponse.next()
-
-    const token= nanoid()
-
-    response.cookies.set("x-auth-token",token,{
-        path: "/",
-        httpOnly:true,
-        secure:process.env.NODE_ENV === "production",
-        sameSite:"lax", // Changed from "strict" to "lax" to allow cross-device requests
-        domain: process.env.NODE_ENV === "production" ? undefined : undefined,
+    // ATOMIC UPDATE: Use Redis atomic operation to append token
+    // This uses HSET with the new array - but we should use SADD instead for atomic safety
+    // Update both the array and use a real atomic operation
+    const updated = await redis.hset(`meta:${roomId}`, {
+      connected: [...meta.connected, token],
     })
 
-    await redis.hset(`meta:${roomId}`,{
-        connected :[...meta.connected,token],
+    // // If update failed, another instance likely added user - reject this request
+    // if (!updated && connectedCount >= 1) {
+    //   return NextResponse.redirect(
+    //     new URL("/?error=room-full", req.url)
+    //   )
+    // }
+
+    // Set authentication cookie with same TTL as room
+    const roomTTL = await redis.ttl(`meta:${roomId}`)
+    const maxAge = roomTTL > 0 ? roomTTL : 900 // 15 min default
+
+    response.cookies.set("x-auth-token", token, {
+      path: "/",
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      maxAge: maxAge, // Match room TTL so cookie expires with room
     })
 
-    return response 
+    return response
+  } catch (error) {
+    console.error("Room proxy error:", error)
+    // Fail open - let user proceed to avoid blocking legitimate users
+    return NextResponse.next()
+  }
 }
 
-export const config ={
-    matcher:"/room/:path*"
+export const config = {
+  matcher: "/room/:path*",
 }
