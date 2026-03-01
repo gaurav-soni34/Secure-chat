@@ -42,7 +42,8 @@ export const proxy =async (req: NextRequest)=>{
         path: "/",
         httpOnly:true,
         secure:process.env.NODE_ENV === "production",
-        sameSite:"strict",
+        sameSite:"lax", // Changed from "strict" to "lax" to allow cross-device requests
+        domain: process.env.NODE_ENV === "production" ? undefined : undefined,
     })
 
     await redis.hset(`meta:${roomId}`,{

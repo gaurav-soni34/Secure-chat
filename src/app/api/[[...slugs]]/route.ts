@@ -9,6 +9,25 @@ import { Message, realtime } from "@/src/lib/realtime"
 
 const ROOM_TTL_SECONDS=60*15
 
+// CORS Middleware for cross-origin requests from different devices
+const corsMiddleware = (app: Elysia) => {
+  return app.onRequest(({ request, set }) => {
+    const origin = request.headers.get("origin") || "*"
+    
+    // Allow requests from any origin for mobile/cross-device support
+    set.headers["Access-Control-Allow-Origin"] = origin
+    set.headers["Access-Control-Allow-Credentials"] = "true"
+    set.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH"
+    set.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, Cookie, x-auth-token"
+    set.headers["Access-Control-Max-Age"] = "86400"
+    
+    // Handle preflight requests
+    if (request.method === "OPTIONS") {
+      return new Response(null, { status: 204 })
+    }
+  })
+}
+
 const rooms = new Elysia({prefix:"/room"}).
 post("/create", async()=>{
     const roomId=nanoid()
@@ -105,10 +124,11 @@ const messages =new Elysia({ prefix: "/messages"}).use(autheMiddleware)
     {query : z.object({ roomId: z.string()})}
 )
 
-const app = new Elysia({ prefix: "/api" }).use(rooms).use(messages)
+const app = new Elysia({ prefix: "/api" }).use(corsMiddleware).use(rooms).use(messages)
 
 export const GET = app.fetch
 export const POST = app.fetch
 export const DELETE = app.fetch
+export const OPTIONS = app.fetch
 
 export type App = typeof app

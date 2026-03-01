@@ -17,6 +17,55 @@ function formatTimeRemaining(seconds: number) {
   return `${mins}:${secs.toString().padStart(2, "0")}`;
 }
 
+// Fallback copy to clipboard using textarea (for non-HTTPS or older browsers)
+function fallbackCopyToClipboard(text: string): boolean {
+  try {
+    // Create a temporary textarea element
+    const textarea = document.createElement("textarea");
+    
+    // Set styles to make it invisible and prevent any layout shift
+    textarea.style.position = "fixed";
+    textarea.style.top = "0";
+    textarea.style.left = "0";
+    textarea.style.width = "2em";
+    textarea.style.height = "2em";
+    textarea.style.padding = "0";
+    textarea.style.border = "none";
+    textarea.style.outline = "none";
+    textarea.style.boxShadow = "none";
+    textarea.style.background = "transparent";
+    textarea.style.opacity = "0";
+    textarea.style.pointerEvents = "none";
+    
+    // Set the text to copy
+    textarea.value = text;
+    
+    // Append to DOM
+    document.body.appendChild(textarea);
+    
+    // Select the text
+    textarea.select();
+    textarea.setSelectionRange(0, text.length);
+    
+    // Copy the text using the deprecated but widely supported execCommand
+    const successful = document.execCommand("copy");
+    
+    // Remove the textarea
+    document.body.removeChild(textarea);
+    
+    if (successful) {
+      console.log("Fallback copy succeeded");
+      return true;
+    } else {
+      console.warn("Fallback copy command returned false");
+      return false;
+    }
+  } catch (error) {
+    console.error("Fallback copy failed:", error);
+    return false;
+  }
+}
+
 const Page = () => {
   const params = useParams();
   const roomId = params.roomId as string;
@@ -102,13 +151,51 @@ const Page = () => {
     },
   })
 
-  const copyLink = () => {
+  // Production-safe copy to clipboard with proper error handling and fallbacks
+  const copyLink = async () => {
     const url = window.location.href;
-    navigator.clipboard.writeText(url);
-    setCopyStatus("Copied!");
-    setTimeout(() => {
-      setCopyStatus("Copy");
-    }, 2000);
+    let copySuccess = false;
+
+    try {
+      // Check if Clipboard API is available and we're in a secure context (HTTPS)
+      if (navigator.clipboard && window.isSecureContext) {
+        try {
+          // Try the modern Clipboard API first
+          await navigator.clipboard.writeText(url);
+          copySuccess = true;
+          console.log("Clipboard API succeeded");
+        } catch (clipboardError) {
+          // Clipboard API failed (permission denied, or other error)
+          console.warn("Clipboard API failed, attempting fallback method:", clipboardError);
+          copySuccess = fallbackCopyToClipboard(url);
+        }
+      } else {
+        // Clipboard API not available or not in secure context (HTTP)
+        const reason = !navigator.clipboard ? "Clipboard API not available" : "Not in secure context (HTTPS required)";
+        console.warn(`Clipboard API unavailable (${reason}), using fallback method`);
+        copySuccess = fallbackCopyToClipboard(url);
+      }
+
+      // Update UI status based on success/failure
+      if (copySuccess) {
+        setCopyStatus("Copied!");
+        setTimeout(() => {
+          setCopyStatus("Copy");
+        }, 2000);
+      } else {
+        setCopyStatus("Failed!");
+        setTimeout(() => {
+          setCopyStatus("Copy");
+        }, 2000);
+      }
+    } catch (error) {
+      // Catch any unexpected errors
+      console.error("Unexpected error in copyLink:", error);
+      setCopyStatus("Failed!");
+      setTimeout(() => {
+        setCopyStatus("Copy");
+      }, 2000);
+    }
   };
 
   return (
